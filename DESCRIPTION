@@ -1,0 +1,18 @@
+Package: dummyosp
+Type: Package
+Title: Dummy Package to Test R-Universe Dependency Installation
+Version: 0.0.1
+Authors@R:
+    person("Felix", "Mil", email = "felix.mil@esqlabs.com", role = c("aut", "cre"))
+Description: A minimal package that imports ospsuite and ospsuite.plots. Its only
+    purpose is to verify that packages depending on the Open-Systems-Pharmacology
+    R-universe packages can be installed with their dependencies resolved from the
+    universe.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports:
+    ospsuite,
+    ospsuite.plots
+Additional_repositories:
+    https://open-systems-pharmacology.r-universe.dev
+Config/roxygen2/version: 8.0.0
