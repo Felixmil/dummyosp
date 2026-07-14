@@ -90,6 +90,47 @@ https://open-systems-pharmacology.r-universe.dev/bin/macosx/sonoma-arm64/contrib
 
 That is a pre-built R-universe binary, not a GitHub source build. The downstream install works end to end: `dummyosp` is installed, and its OSP `Imports` are resolved from the universe automatically.
 
+## The OSP packages are directly installable with base `install.packages()`
+
+No `pak` or `remotes` needed to get the OSP packages themselves: once the universe is on the `repos` list, plain base R installs them by name, as pre-built binaries, exactly like any CRAN package.
+
+```r
+install.packages(
+  "ospsuite", # or ospsuite.plots, rSharp, ...
+  repos = c(
+    OSP  = "https://open-systems-pharmacology.r-universe.dev",
+    CRAN = "https://cloud.r-project.org"
+  ),
+  dependencies = TRUE
+)
+```
+
+To confirm the packages resolve from the universe (rather than relying on what is already installed on your machine), inspect the repository index and fetch directly:
+
+```r
+repos <- c(
+  OSP  = "https://open-systems-pharmacology.r-universe.dev",
+  CRAN = "https://cloud.r-project.org"
+)
+
+# 1. Base R sees the OSP packages in the repository list:
+ap <- available.packages(repos = repos)
+ap[c("ospsuite", "ospsuite.plots", "rSharp"), "Version"]
+#>       ospsuite ospsuite.plots         rSharp
+#>  "12.4.3.9014"   "1.2.0.9005"        "1.2.2"
+
+ap["ospsuite", "Repository"]
+#> "https://open-systems-pharmacology.r-universe.dev/src/contrib/ospsuite_12.4.3.9014.tar.gz?sha256=..."
+
+# 2. download.packages() fetches from the universe regardless of what is
+#    already installed, so the source is unambiguous:
+download.packages("ospsuite", destdir = tempdir(), repos = repos)
+#> [1] "ospsuite"
+#> [2] ".../ospsuite_12.4.3.9014.tar.gz"   # downloaded from the universe
+```
+
+This is the "install a package with R-universe dependencies normally" case in its simplest form: base `install.packages()` with the universe named in `repos`. `dummyosp` cannot be installed this way only because it is hosted on GitHub, not in a repository; its OSP dependencies, which *are* in the universe, install with plain base tooling.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
