@@ -14,30 +14,17 @@ This repository is the runnable proof that it can.
 
 Two pieces combine to make the resolution work:
 
-1. `dummyosp`'s [`DESCRIPTION`](DESCRIPTION) declares the OSP universe as a non-CRAN source:
+1. `dummyosp`'s [`DESCRIPTION`](DESCRIPTION) declares the OSP universe as a non-CRAN source via `Additional_repositories`. This is the standard `R CMD` field that tells tooling where non-CRAN `Imports` live, and it is honored by `R CMD check`.
 
-   ```
-   Additional_repositories:
-       https://open-systems-pharmacology.r-universe.dev
-   ```
+2. The OSP universe must be on the active repository list when you install. `pak` then treats `ospsuite`, `ospsuite.plots`, and `rSharp` as ordinary repository packages and pulls them from the universe as **pre-built binaries**.
 
-   `Additional_repositories` is the standard `R CMD` mechanism for declaring where non-CRAN `Imports`/`Depends`/`Suggests` come from. It is honored by `R CMD check` and by base `install.packages()` when installing a source tarball that carries the field.
-
-2. The active repository list must include the OSP universe when you run the install.
-
-   One practical caveat, reflected in the snippets below: when installing straight from GitHub, neither `pak` nor `remotes::install_github()` reads `Additional_repositories` out of the fetched package to discover where the OSP dependencies live. You point them at the universe explicitly (via `options(repos = ...)` for `pak`, or the `repos =` argument for `remotes`). Once the universe is in the active repository list, both resolve `ospsuite` and `ospsuite.plots` from it automatically.
+Use `pak`, not `remotes::install_github()`. `remotes` recognizes the OSP packages as GitHub-hosted (from their `Remotes:`/repo origin) and rebuilds them from GitHub source, bypassing the universe entirely. `pak` resolves them from the universe as binaries, which is the R-universe install experience this repository is meant to show.
 
 ## Reproducible install
 
-Run any **one** of the following in a clean R session. Each installs `dummyosp` and, transitively, `ospsuite` and `ospsuite.plots` (and their own dependencies) from the OSP R-universe, with everything else coming from CRAN.
+Run the following in a clean R session. It installs `dummyosp` and, transitively, `ospsuite` and `ospsuite.plots` (plus `rSharp` and the rest) from the OSP R-universe, with everything else coming from CRAN.
 
-To make this a genuine proof, each snippet installs into a **fresh, empty library** so that nothing you already have installed can be reused. The OSP dependencies *must* be resolved and downloaded from the universe for the install to succeed. Delete the temporary library afterward and your usual library is untouched.
-
-Both snippets below were run end to end into a fresh library before being published here.
-
-### Option 1: `pak` (recommended)
-
-Put the OSP universe (and CRAN) on the repository list, then let `pak` resolve `dummyosp` and its OSP dependencies from it.
+To make this a genuine proof, the snippet installs into a **fresh, empty library** so that nothing you already have installed can be reused. The OSP dependencies *must* be resolved and downloaded from the universe for the install to succeed. Delete the temporary library afterward and your usual library is untouched.
 
 ```r
 install.packages("pak")
@@ -46,8 +33,8 @@ install.packages("pak")
 lib <- tempfile("dummyosp-lib-")
 dir.create(lib)
 
-# pak does NOT read Additional_repositories from the GitHub package,
-# so name the universe explicitly on the repos list.
+# Put the OSP universe (and CRAN) on the repository list. pak does not read
+# Additional_repositories from the fetched package, so name the universe here.
 options(repos = c(
   OSP  = "https://open-systems-pharmacology.r-universe.dev",
   CRAN = "https://cloud.r-project.org"
@@ -63,55 +50,45 @@ pak::pak(
 # Load and verify strictly from the fresh library.
 library(dummyosp, lib.loc = lib)
 ospVersions()
-```
-
-### Option 2: `remotes` with the universe as an explicit repo
-
-If you prefer base-adjacent tooling, pass the universe and CRAN through `repos`. `dummyosp` is not on the universe itself, so install it from GitHub via `remotes`, and let `repos` supply the dependencies:
-
-```r
-install.packages(c("remotes", "withr"))
-
-# Fresh, empty library so nothing already installed can be reused.
-lib <- tempfile("dummyosp-lib-")
-dir.create(lib)
-
-withr::with_libpaths(lib, action = "prefix", {
-  remotes::install_github(
-    "Felixmil/dummyosp",
-    repos = c(
-      OSP  = "https://open-systems-pharmacology.r-universe.dev",
-      CRAN = "https://cloud.r-project.org"
-    ),
-    dependencies = TRUE,
-    upgrade = "always", # do not reuse already-installed versions
-    force = TRUE
-  )
-})
-
-# Load and verify strictly from the fresh library.
-library(dummyosp, lib.loc = lib)
-ospVersions()
-```
-
-## What success looks like
-
-The final `ospVersions()` call in each snippet returns the two versions without error:
-
-```r
-ospVersions()
 #>      ospsuite ospsuite.plots
-#> "12.4.3.9013"   "1.2.0.9004"
+#> "12.4.3.9014"   "1.2.0.9005"
 #> (exact versions match whatever the universe currently serves)
+
+unlink(lib, recursive = TRUE) # clean up the throwaway library
 ```
 
-Because everything was installed into a fresh, empty library, those two packages could only have come from the R-universe. The downstream install worked end to end: `dummyosp` was installed, and its OSP `Imports` were resolved from the universe automatically.
+## Proving where the dependencies came from
 
-Clean up the throwaway library when done:
+The version string alone is not proof (the universe and GitHub HEAD can momentarily match). To see the actual source of each package, ask `pak` to resolve the plan without installing anything:
 
 ```r
-unlink(lib, recursive = TRUE)
+options(repos = c(
+  OSP  = "https://open-systems-pharmacology.r-universe.dev",
+  CRAN = "https://cloud.r-project.org"
+))
+
+plan <- pak::pkg_deps("Felixmil/dummyosp", dependencies = TRUE)
+plan[plan$package %in% c("dummyosp", "ospsuite", "ospsuite.plots", "rSharp"),
+     c("package", "version", "type")]
 ```
+
+Which returns:
+
+```
+         package      version     type
+1       dummyosp        0.0.1   github
+2       ospsuite  12.4.3.9014 standard
+3 ospsuite.plots   1.2.0.9005 standard
+4         rSharp        1.2.2 standard
+```
+
+`dummyosp` itself is `github` (it is not on the universe). Every OSP dependency is `standard`, meaning a regular repository package, and its resolved `sources` URL points at the universe, for example:
+
+```
+https://open-systems-pharmacology.r-universe.dev/bin/macosx/sonoma-arm64/contrib/4.6/ospsuite_12.4.3.9014.tgz
+```
+
+That is a pre-built R-universe binary, not a GitHub source build. The downstream install works end to end: `dummyosp` is installed, and its OSP `Imports` are resolved from the universe automatically.
 
 ## License
 
