@@ -8,4 +8,8 @@ test_that("the Aciclovir example simulation loads", {
 
   sim <- ospsuite::loadSimulation(sim_path)
   expect_s3_class(sim, "Simulation")
+
+  res <- ospsuite::runSimulations(sim)
+
+  expect_snapshot(ospsuite::simulationResultsToTibble(res[[1]]))
 })
