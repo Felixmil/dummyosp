@@ -70,13 +70,26 @@ plan[plan$package %in% c("dummyosp", "ospsuite", "ospsuite.plots", "rSharp"),
     extra-repositories: https://open-systems-pharmacology.r-universe.dev
 ```
 
-That single input puts the universe on `repos` for the runner; `setup-r-dependencies` (which uses `pak`) then resolves the OSP `Imports` from it. No `Remotes:` field and no custom workflows are involved. The check runs on Ubuntu and Windows and passes on both.
+That single input puts the universe on `repos` for the runner; `setup-r-dependencies` (which uses `pak`) then resolves the OSP `Imports` from it. No `Remotes:` field and no custom workflows are involved. The check runs on Ubuntu, Windows, and macOS. Dependency **installation** from the universe succeeds on all three; the R CMD check as a whole passes on Ubuntu and Windows but fails on macOS, for a runtime reason unrelated to the universe (see [Discussion](#discussion)).
 
 ## Discussion
 
 **The installer matters because of how `Remotes:` is scoped.** `ospsuite`'s own `DESCRIPTION` contains a `Remotes:` field pointing its dependencies back at GitHub (`rSharp`, `ospsuite.utils`, `tlf`, `ospsuite.plots`, all `@*release`). That field has no effect on the install above: `pak` honors `Remotes:` only for the *root* package requested, never for the `Remotes:` of packages pulled in transitively. Because `dummyosp` declares no `Remotes:`, nothing steers resolution to GitHub and the universe on `repos` supplies the whole tree. This is precisely why `remotes::install_github()` behaves differently: `remotes` *does* follow a dependency's `Remotes:` and rebuilds the OSP packages from GitHub source, bypassing the universe. Use `pak` (or base `install.packages()`) to get the universe install.
 
 **Binaries are platform-specific; Linux resolves to source.** An R-universe publishes pre-built binaries for Windows and macOS only. There is no generic Linux binary, so on Linux the same packages resolve to `src/contrib/*.tar.gz` and compile from source. Same universe and same command, different artifact per OS. This is visible in CI: the Windows job installs `ospsuite` as a `.zip` binary in seconds, while the Ubuntu job compiles it from the source tarball (slower, but successful). For a large package with a .NET component this is the main cost difference between the two platforms.
+
+**Installing is not the same as running: `rSharp` needs a .NET runtime.** The macOS CI job installs every OSP package from the universe without trouble, then fails during the tests, because `rSharp` calls into .NET and the `macos-latest` runner ships no usable .NET runtime:
+
+```
+── Failure ('test-ospsuite.R:2:3'): dotnet runtime is available ──
+Expected `rSharp::dotnetAvailable()` to be TRUE.
+── Error ('test-ospsuite.R:13:3'): the Aciclovir example simulation loads ──
+Error: The .NET runtime could not be initialised.
+rSharp is installed, but calls into .NET will fail until a working runtime is available.
+Install .NET 8: ...  Details: Failure: load_hostfxr()
+```
+
+Windows passes because its runner has a compatible .NET; macOS does not, so a step to install .NET 8 (e.g. via `actions/setup-dotnet`) would be required there. This is worth separating clearly: the universe resolution and download work on every platform, but *using* the OSP packages needs the .NET 8 runtime present, which is a machine prerequisite independent of how the packages were obtained.
 
 **CI does not require the upstream machinery.** The production OSP packages resolve dependencies through a dedicated reusable-workflows repository that pins and unpins the `Remotes:` field on every pull request. None of that is needed simply to install from the universe; the one `extra-repositories` line above is sufficient for a downstream package.
 
