@@ -1,3 +1,7 @@
+test_that("dotnet runtime is available", {
+  expect_true(rSharp::dotnetAvailable())
+})
+
 test_that("ospsuite namespace loads", {
   expect_true(requireNamespace("ospsuite", quietly = TRUE))
 })
