@@ -1,12 +1,12 @@
 # Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
 # Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
 #
-# Runs on Ubuntu and Windows (R release). The OSP dependencies (ospsuite,
-# ospsuite.plots) are resolved from the Open-Systems-Pharmacology R-universe
-# via the `extra-repositories` input on setup-r, which is all that is needed:
-# no `Remotes:` field and no custom reusable workflows. On Windows the universe
-# serves precompiled binaries; on Ubuntu it has source only, so those packages
-# are built from source there.
+# Runs on Ubuntu, Windows, and macOS (R release). The OSP dependencies
+# (ospsuite, ospsuite.plots) are resolved from the Open-Systems-Pharmacology
+# R-universe via the `extra-repositories` input on setup-r, which is all that
+# is needed: no `Remotes:` field and no custom reusable workflows. On Windows
+# and macOS the universe serves precompiled binaries; on Ubuntu it has source
+# only, so those packages are built from source there.
 on:
   push:
     branches: [main]
@@ -28,6 +28,7 @@ jobs:
         config:
           - {os: ubuntu-latest,  r: 'release'}
           - {os: windows-latest, r: 'release'}
+          - {os: macos-latest,   r: 'release'}
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
