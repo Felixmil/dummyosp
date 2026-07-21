@@ -4,6 +4,10 @@
 
 `dummyosp` does nothing useful on its own. It `Imports: ospsuite, ospsuite.plots` and exports one function, `ospVersions()`, that reports the versions of those packages. Its value is as a test fixture: a real package whose only dependencies are OSP packages, used to answer one question and record the answer.
 
+## Goal
+
+Evaluate whether the [R-universe](https://r-universe.dev) is a sound basis for **distributing** the Open Systems Pharmacology R packages and for **resolving dependencies between them**, from the point of view of a downstream package that depends on the OSP stack. Concretely: can such a package be installed with its OSP dependencies fetched and version-resolved automatically from the universe, on the platforms its users run, and under continuous integration, and where are the boundaries of that approach.
+
 ## Background
 
 OSP R packages ship pre-compiled .NET binaries, so they cannot go on CRAN and are published on an [R-universe](https://r-universe.dev) instead. This raises a practical question for anyone building on top of them: can a *downstream* package that lists OSP packages in its `Imports` be installed normally, with those dependencies fetched automatically from the universe, rather than requiring each user to hand-install the OSP stack first? `dummyosp` exists to test that end to end and to document the conditions under which it holds.
@@ -89,10 +93,32 @@ rSharp is installed, but calls into .NET will fail until a working runtime is av
 Install .NET 8: ...  Details: Failure: load_hostfxr()
 ```
 
-Windows passes because its runner has a compatible .NET; macOS does not, so a step to install .NET 8 (e.g. via `actions/setup-dotnet`) would be required there. This is worth separating clearly: the universe resolution and download work on every platform, but *using* the OSP packages needs the .NET 8 runtime present, which is a machine prerequisite independent of how the packages were obtained.
+Windows passes because its runner has a compatible .NET; macOS does not. Adding a `.NET 8` install step (`actions/setup-dotnet`) fixes it: with that one step the macOS job goes green while nothing else changes. This is worth separating clearly: the universe resolution and download work on every platform, but *using* the OSP packages needs the .NET 8 runtime present, which is a machine prerequisite independent of how the packages were obtained.
 
-**CI does not require the upstream machinery.** The production OSP packages resolve dependencies through a dedicated reusable-workflows repository that pins and unpins the `Remotes:` field on every pull request. None of that is needed simply to install from the universe; the one `extra-repositories` line above is sufficient for a downstream package.
+**The universe route does not require the upstream machinery.** The production OSP packages resolve dependencies through a dedicated reusable-workflows repository that pins and unpins the `Remotes:` field on every pull request. None of that is needed simply to install from the universe; the one `extra-repositories` line above is sufficient for a downstream package.
 
-## License
+**The OSP reusable workflow can be reused directly, with one caveat.** A downstream package can call the workflow instead of writing its own, and get the OSP-specific setup for free:
 
-MIT. See [LICENSE](LICENSE).
+```yaml
+jobs:
+  R-CMD-check:
+    uses: Open-Systems-Pharmacology/Workflows/.github/workflows/R-CMD-check-build.yaml@main
+```
+
+It exposes inputs for `os-matrix`, `dotnet-version` (defaulting to `8.0.x`, so the .NET runtime problem above is handled out of the box), `extra-packages`, and a few others. To supply the OSP dependencies through it there are two working routes: a `Remotes:` field in `DESCRIPTION` (the upstream default), or the OSP GitHub refs passed via the `extra-packages` input (for a package without renv, that input is forwarded to `setup-r-dependencies`, which accepts `owner/repo` refs). The **caveat** is the R-universe: the workflow exposes no `extra-repositories` input and does not put the universe on `repos`, so the universe route specifically is not reachable through it. That is the one reason this repository inlines a flattened copy of the workflow (see [`.github/workflows/pull-request.yaml`](.github/workflows/pull-request.yaml)) and adds `extra-repositories` itself: to keep the universe resolution while borrowing the .NET setup and check flags. If you resolve via `Remotes:` or `extra-packages` instead, call the reusable workflow directly and skip the copy.
+
+**A `Remotes:` field is a fallback source, not an override.** Suppose you want to develop against the *development* version of one dependency, e.g. `ospsuite.plots` from GitHub rather than the released build the universe serves. The [R Packages book](https://r-pkgs.org/dependencies-in-practice.html#depending-on-the-development-version-of-a-package) prescribes two coordinated edits (made by `usethis::use_dev_package()`): a `Remotes:` entry for the GitHub repo, *and* a minimum-version floor in `Imports` that only the dev build satisfies, e.g. `ospsuite.plots (>= 1.3.0.9001)`. The floor is essential: `pak` treats `Remotes:` purely as a *source hint* and will still prefer the released repository build (`1.3.0` from the universe) whenever it satisfies the requirement. Only a floor the released build fails forces `pak` to fall through to the GitHub dev build.
+
+**Dev versions cascade across the OSP stack.** Even with the floor set correctly, `dummyosp` depending on dev `ospsuite.plots` alongside a universe-served `ospsuite` does **not** resolve. Dev `ospsuite.plots` carries its *own* `Remotes:` pinning dev `ospsuite.utils` (`1.11.1.9001`) from GitHub, which `pak` follows because that package now comes from GitHub. Meanwhile `ospsuite` still comes from the universe as a released build wanting released `ospsuite.utils` (`1.11.1`). The two requirements on `ospsuite.utils` cannot both be met, and resolution fails with `Can't install dependency ospsuite.plots (>= 1.3.0.9001)`. The practical consequence: you cannot take a single OSP package at its dev version in isolation; the dev builds pin each other, so going dev on one generally means going dev on the connected set.
+
+## Conclusion
+
+For its stated goal, the R-universe is a sound basis for distributing the OSP packages and resolving the dependencies between them, with clear and well-behaved boundaries.
+
+**Distribution and inter-package resolution work.** A downstream package that lists OSP packages in `Imports` installs cleanly, with the whole OSP dependency graph (`ospsuite`, `ospsuite.plots`, `ospsuite.utils`, `rSharp`, `tlf`, ...) fetched and version-resolved automatically from the universe once it is on `repos`. This holds for a single added line, `Additional_repositories` for `R CMD check` and `extra-repositories` for CI, and needs no `Remotes:` field and no custom reusable-workflow machinery. It is confirmed end to end in continuous integration on Ubuntu, Windows, and macOS.
+
+**The boundaries are two, and neither is a flaw in the universe.** First, binaries are platform-specific: the universe serves pre-built binaries for Windows and macOS but source for Linux, so Linux installs compile (slower, still successful). Second, and separate from distribution, *running* the OSP packages needs the .NET 8 runtime present on the machine; a runner without it (macOS by default) installs everything fine but fails at runtime until .NET is added.
+
+**Released versus development.** The universe distributes released builds, and for the ordinary "depend on the released stack" case that is exactly what is wanted. Depending on a *development* version of one OSP package is where the universe stops being sufficient on its own: it requires the `Remotes:`-plus-version-floor mechanism, and because the OSP dev builds pin one another, a single dev dependency cascades into taking the connected set at dev. That is a property of the packages' mutual dev pinning, not of the universe, but it is the practical limit of mixing universe releases with a GitHub dev build.
+
+**Recommendation.** Use the R-universe as the distribution and dependency-resolution channel for downstream OSP work against released versions; it is simpler and more robust than the `Remotes:`/reusable-workflow path. Reserve `Remotes:` for genuine development against unreleased OSP code, and expect it to pull the connected dev set rather than a single package. On any machine or runner that will *run* OSP models, provision the .NET 8 runtime independently of how the packages are obtained.
